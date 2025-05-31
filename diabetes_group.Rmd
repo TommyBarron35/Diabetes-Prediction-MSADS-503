@@ -75,7 +75,7 @@ dplyr::glimpse(df)
 sum(is.na(df))
 vis_miss(df)  # Visualize missing data
 ```
-Categorical variables were converted to factors for better readability and modeling. Binary values (0 and 1) for hypertension, heart disease, and diabetes were relabeled as "No"/"Yes" or "Negative"/"Positive" to improve interpretability.
+Categorical variables were converted to factors for better readability for EDA purpose. Binary values (0 and 1) for hypertension, heart disease, and diabetes were relabeled as "No"/"Yes" or "Negative"/"Positive" to improve interpretability.
 
 ```{r}
 # Convert to proper types -> 0 and 1 to "yes" and "no"
@@ -126,8 +126,6 @@ ggplot(df, aes(diabetes, fill = diabetes)) +
 
 ```
 
-Need further investigation because of class imbalance 91500 negative diabetes and 8500 positive is clearly imbalanced
-
 
 ```{r}
 # Age analysis
@@ -143,7 +141,9 @@ ggplot(df, aes(x = age, fill = diabetes, group = diabetes)) +
 ggplot(df, aes(bmi)) +
   geom_histogram(fill = "steelblue", bins = 30) +
   geom_vline(xintercept = c(18.5, 25, 30), linetype = "dashed", color = "red") +
-  annotate("text", x = c(17, 22, 28, 35), y = 5000, 
+  annotate("text", 
+           x = c(17, 21.5, 26.5, 32.5),  
+           y = c(3000, 8000, 12000, 8000), 
            label = c("Underweight", "Normal", "Overweight", "Obese")) +
   labs(title = "BMI Distribution with Clinical Thresholds")
 ```
