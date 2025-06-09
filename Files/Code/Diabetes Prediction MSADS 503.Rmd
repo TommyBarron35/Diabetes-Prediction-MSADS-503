@@ -1,0 +1,629 @@
+---
+title: "Classifying the Onset of Diabetes Using Medical and Demographic Patient Data"
+output: 
+  html_document:
+    theme: journal
+    toc: True
+    toc_float: True
+---
+
+# Overview
+
+## Setup Environment
+
+<!--
+Load necessary libraries - (run it on the console)
+# Install packages
+install.packages("caret")
+install.packages("correlationfunnel")
+install.packages("corrplot")
+install.packages("DataExplorer")
+install.packages("dplyr")
+install.packages("forcats")
+install.packages("GGally")
+install.packages("ggthemes")
+install.packages("ggplot2")
+install.packages("naniar")
+install.packages("summarytools")
+install.packages("tidyverse")
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load packages
+library(caret)
+library(correlationfunnel)
+library(corrplot)
+library(DataExplorer)
+library(dplyr)
+library(forcats)
+library(GGally)
+library(ggthemes)
+library(ggplot2)
+library(naniar)
+library(summarytools)
+library(tidyverse)
+```
+
+## Dataset Overview and Objective
+
+The **Diabetes Prediction** Dataset is a comprehensive collection of medical and demographic records aimed at identifying the likelihood of diabetes in patients. Each observation in the dataset includes both physiological and lifestyle-related features, along with a binary outcome indicating whether the individual is diabetic (positive) or not (negative).
+
+Key variables in the dataset include:
+
+Age: The age of the patient
+Gender: Male or Female
+Body Mass Index (BMI): A measure of body fat based on height and weight
+Hypertension: Indicates whether the patient has high blood pressure (1 = Yes, 0 = No)
+Heart Disease: Indicates the presence of cardiovascular disease (1 = Yes, 0 = No)
+Smoking History: Categorical variable showing smoking habits (e.g., never, current, former)
+HbA1c Level: Average blood sugar level over the past 2–3 months, measured in percentage
+Blood Glucose Level: Instantaneous measure of blood sugar at the time of recording
+Diabetes Status: Target variable indicating whether the patient is diabetic (positive) or not (negative)
+The primary objective of this analysis is to develop a predictive classification model that determines whether an individual is likely to have diabetes based on their medical and lifestyle attributes. 
+
+# Data Exploration
+
+## Load Data
+
+```{r Load Data}
+# Clear everything
+rm(list = ls())
+gc()
+
+# Load only essential packages
+library(ggplot2)
+library(dplyr)
+
+# Load data
+df <- read.csv("diabetes_prediction_dataset.csv", stringsAsFactors = FALSE)
+
+# View first few rows
+head(df)
+
+# View structure and summary
+summary(df)
+```
+
+```{r Data Glimpse, include=FALSE}
+dplyr::glimpse(df)
+```
+
+## Data Preprocessing
+
+### Missing Values
+
+```{r Missing Values}
+# Check for missing values
+sum(is.na(df))
+vis_miss(df)  # Visualize missing data
+```
+
+### Encode Categorical Variables
+
+Categorical variables were converted to factors for better readability for EDA purpose. Binary values (0 and 1) for hypertension, heart disease, and diabetes were relabeled as "No"/"Yes" or "Negative"/"Positive" to improve interpretability.
+
+```{r Data Encoding}
+# Convert to proper types -> 0 and 1 to "yes" and "no"
+df <- df %>%
+  mutate(
+    gender = as.factor(gender),
+    smoking_history = as.factor(smoking_history),
+    hypertension = factor(hypertension, levels = c(0,1), labels = c("No", "Yes")),
+    heart_disease = factor(heart_disease, levels = c(0,1), labels = c("No", "Yes")),
+    diabetes = factor(diabetes, levels = c(0,1), labels = c("Negative", "Positive"))
+  )
+
+# Check "No Info" in smoking history
+df %>% 
+  count(smoking_history) %>% 
+  mutate(prop = n/sum(n))
+```
+
+### Feature Engineering
+
+Smoking history was cleaned by renaming "No Info" to "Unknown" and merging similar categories. "Ever," "former," and "not current" became "Former" (19.8%), while "Never" (35.1%) and "Current" (9.3%) were kept unchanged.
+
+```{r Feature Engineering}
+# Consolidate smoking history categories
+df <- df %>%
+  mutate(smoking_history = factor(smoking_history)) %>%
+  mutate(
+    smoking_history = fct_collapse(smoking_history,
+      "Never" = "never",
+      "Former" = c("ever", "former", "not current"),
+      "Current" = "current",
+      "Unknown" = "No Info"
+    )
+  )
+
+# Check "No Info" in smoking history
+df%>% 
+  count(smoking_history) %>% 
+  mutate(prop = n/sum(n))
+```
+
+# Exploratory Data Analysis
+
+## Diabetes (Response) Class Distribution
+
+```{r Diabetes Class Distribution}
+# Target distribution
+ggplot(df, aes(diabetes, fill = diabetes)) +
+  geom_bar() +
+  geom_text(
+    stat = "count", 
+    aes(label = ..count..), 
+    vjust = -0.5
+  ) +
+  labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
+```
+
+## Diabetes Versus Age Distribution
+
+```{r Diabetes vs Age}
+# Age analysis
+ggplot(df, aes(x = age, fill = diabetes, group = diabetes)) +
+  geom_density(alpha = 0.7) +
+  facet_wrap(~diabetes, ncol = 1) +
+  labs(title = "Age Distribution by Diabetes Status", x = "Age", y = "Density") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Distribution of BMI
+
+```{r BMI Distribution}
+# BMI analysis with clinical thresholds
+ggplot(df, aes(bmi)) +
+  geom_histogram(fill = "steelblue", bins = 30) +
+  geom_vline(xintercept = c(18.5, 25, 30), linetype = "dashed", color = "red") +
+  annotate("text", 
+           x = c(17, 21.5, 26.5, 32.5),  
+           y = c(3000, 8000, 12000, 8000), 
+           label = c("Underweight", "Normal", "Overweight", "Obese")) +
+  labs(title = "BMI Distribution with Clinical Thresholds")
+```
+
+## Critical Biomarkers Versus Diabetes Class
+
+```{r Biomarker Versus Diabetes Class}
+df %>% 
+  select(HbA1c_level, blood_glucose_level, diabetes) %>% 
+  pivot_longer(-diabetes) %>% 
+  ggplot(aes(x = value, fill = diabetes)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~name, scales = "free", ncol = 1) +
+  geom_vline(data = data.frame(name = c("HbA1c_level", "blood_glucose_level"),
+                               threshold = c(6.5, 200)),
+             aes(xintercept = threshold), color = "red", linetype = "dashed") +
+  labs(title = "Critical Biomarkers Distribution",
+       subtitle = "Red lines indicate diagnostic thresholds")
+```
+
+## Diabetes Class Distribution by Gender
+
+```{r Diabetes Class by Gender}
+ggplot(df, aes(x = gender, fill = gender)) +
+  geom_bar() +
+  geom_text(
+    stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 3
+  ) +
+  facet_wrap(~diabetes) +  # Add faceting by diabetes status
+  labs(
+    title = "Gender Distribution by Diabetes Status",
+    x = "Gender",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+
+We are dropping "others" because they are only  18 observations (0.018% of 100k dataset) won't impact analysis
+
+## Distribution of Gender
+
+```{r Gender Distribution}
+table(df$gender)
+
+df <- df %>%
+  filter(gender %in% c("Male", "Female"))
+
+#Drop unused factor levels
+df$gender <- droplevels(df$gender)
+
+# Create the plot
+ggplot(df, aes(x = gender, fill = gender)) +
+  geom_bar() +
+  geom_text(
+    stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+    color = "black"
+  ) +
+  labs(
+    title = "Gender Distribution (Male/Female only)",
+    subtitle = "Excluded 18 observations of 'Other' gender",
+    x = "Gender",
+    y = "Count"
+  ) +
+  scale_fill_manual(values = c("Female" = "pink", "Male" = "lightblue")) +
+  theme_minimal()
+```
+
+## Correlation Funnel for Target-Focused Relationships
+
+```{r Correlation Funnel}
+# Correlation funnel for target-focused relationships
+
+# Prepare data
+df <- df%>%
+  mutate(
+    diabetes = factor(diabetes, levels = c("Negative", "Positive")),
+    across(where(is.character), as.factor)
+  )
+
+# Create correlation funnel
+df %>%
+  binarize() %>%
+  correlate(target = diabetes__Positive) %>% 
+  plot_correlation_funnel(interactive = FALSE) +
+  labs(title = "Diabetes Risk Correlation Funnel") +
+  theme_minimal()
+```
+
+## Key Findings from Correlation Analysis
+
+High-Risk Indicators
+• HbA1c > 6.2% & glucose > 140 mg/dL
+• Age > 60, hypertension, heart disease
+
+Protective Factors
+• HbA1c < 4.8% & glucose < 100 mg/dL
+• BMI < 23.63, age < 24
+
+Notable Patterns
+
+Clear biomarker thresholds
+Progressive age-risk relationship
+Gender shows minor association
+
+## Diabetes Rate by Comorbidities
+
+```{r Diabetes Rate by Comorbidities}
+# Comorbidity analysis
+comorbidity_analysis <- df %>%
+  group_by(hypertension, heart_disease) %>%
+  summarise(
+    diabetes_rate = mean(diabetes == "Positive"),
+    count = n(),
+    .groups = "drop"
+  )
+
+ggplot(comorbidity_analysis, aes(hypertension, heart_disease, fill = diabetes_rate)) +
+  geom_tile() +
+  geom_text(aes(label = scales::percent(diabetes_rate, accuracy = 0.1))) +
+  scale_fill_gradient(low = "white", high = "firebrick") +
+  labs(title = "Diabetes Rate by Comorbidities",
+       x = "Hypertension", y = "Heart Disease")
+```
+
+## Data Preprocessing 
+
+
+```{r}
+# Handle BMI outliers using quantile capping
+summary(df$bmi)
+
+#calculate the 0.5% and 99.5% percentiles
+bmi_caps <- quantile(df$bmi, probs = c(0.005, 0.995), na.rm = TRUE)
+print(bmi_caps)
+```
+The observed BMI values, ranging from 13.89 to 52.50, fall within the clinically plausible range of 12 to 60. This suggests that all recorded measurements are physiologically valid. As a result, we chose to retain all BMI values without applying any capping.
+
+
+
+```{r}
+# Convert necessary variables to numeric for correlation
+corr_data <- df %>%
+  mutate(
+    hypertension_num = as.numeric(hypertension) - 1,  
+    heart_disease_num = as.numeric(heart_disease) - 1,
+    diabetes_num = as.numeric(diabetes) - 1
+  ) %>%
+  select(age, bmi, HbA1c_level, blood_glucose_level, 
+         hypertension_num, heart_disease_num, diabetes_num)
+
+# Compute correlation matrix
+cor_matrix <- cor(corr_data)
+cor_matrix
+
+
+```
+
+```{r}
+#correlation
+corrplot(cor_matrix, 
+         method = "color",        
+         type = "upper",         
+         tl.col = "black",       
+         tl.srt = 45,           
+         addCoef.col = "black",  
+         number.cex = 0.7,       
+         diag = FALSE)          
+
+# Print notable correlations (> 0.3)
+notable <- which(abs(cor_matrix) > 0.3 & upper.tri(cor_matrix), arr.ind = TRUE)
+
+if(nrow(notable) > 0) {
+  cat("\nNotable Correlations:\n")
+  for(i in 1:nrow(notable)) {
+    row <- notable[i,1]
+    col <- notable[i,2]
+    cat(rownames(cor_matrix)[row], "&", 
+        colnames(cor_matrix)[col], ":", 
+        round(cor_matrix[row,col], 2), "\n")
+  }
+} else {
+  cat("\nNo notable correlations found (all r < 0.3)\n")
+}
+```
+The correlation matrix reveals moderate relationships between key clinical variables and diabestes, so we won't change anything 
+
+```{r}
+# Create clinically relevant features
+df <- df %>%
+  mutate(
+    high_hba1c = factor(ifelse(HbA1c_level >= 6.5, "Yes", "No")),
+    high_glucose = factor(ifelse(blood_glucose_level >= 200, "Yes", "No")),
+    age_group = cut(age, breaks = c(0, 30, 45, 60, 100),
+                    labels = c("<30", "30-45", "46-60", "60+")),
+    bmi_category = cut(bmi, breaks = c(0, 18.5, 25, 30, 100),
+                      labels = c("Underweight", "Normal", "Overweight", "Obese"))
+  )
+
+head(df)
+
+```
+
+
+
+```{r}
+# prepare modeling data
+model_data <- df %>%
+  select(-age_group, -bmi_category) %>%
+  mutate(diabetes = as.factor(diabetes))
+
+# create encoding model (EXCLUDING diabetes)
+dummy_model <- dummyVars(~ . , 
+                         data = model_data %>% select(-diabetes),
+                         fullRank = TRUE)
+
+# apply encoding to predictors only
+encoded_predictors <- predict(dummy_model, newdata = model_data) %>% 
+  as.data.frame()
+
+# add target variable back
+final_data <- encoded_predictors %>% 
+  mutate(diabetes = model_data$diabetes)
+
+```
+
+
+```{r, include=FALSE}
+glimpse(final_data)
+```
+```{r Save Final Data to CSV, include=FALSE}
+# Save processed data
+#write_csv(final_data, "diabetes_processed.csv")
+```
+
+Test/Train/Validation Splits
+
+```{r}
+final_data <- read_csv('/Users/niyatkahsay/Desktop/ADS 503B/Group_project/diabetes_processed.csv')
+print(str(final_data))
+unique(train_data$diabetes)
+
+```
+
+
+```{r}
+
+set.seed(35)
+split_df <- final_data
+
+train_index <- createDataPartition(final_data$diabetes, p = 0.8, list = FALSE)
+train_data <- final_data[train_index, ]
+test_val_data <- final_data[-train_index, ]
+
+test_val_index <- createDataPartition(test_val_data$diabetes, p = 0.5, list = FALSE)
+validation_data <- test_val_data[test_val_index, ]
+test_data <- test_val_data[-test_val_index, ]
+
+dim(final_data)
+dim(train_data)
+dim(test_data)
+dim(validation_data)
+```
+
+```{r}
+ggplot(train_data, aes(diabetes, fill = diabetes)) +
+  geom_bar() +
+  geom_text(
+    stat = "count", 
+    aes(label = ..count..), 
+    vjust = -0.5
+  ) +
+  labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
+```
+
+```{r}
+ggplot(test_data, aes(diabetes, fill = diabetes)) +
+  geom_bar() +
+  geom_text(
+    stat = "count", 
+    aes(label = ..count..), 
+    vjust = -0.5
+  ) +
+  labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
+```
+
+```{r}
+ggplot(validation_data, aes(diabetes, fill = diabetes)) +
+  geom_bar() +
+  geom_text(
+    stat = "count", 
+    aes(label = ..count..), 
+    vjust = -0.5
+  ) +
+  labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
+```
+
+```{r, include=FALSE}
+write_csv(train_data, "diabetes_train.csv")
+write_csv(test_data, "diabetes_test.csv")
+write_csv(validation_data, "diabetes_validation.csv")
+```
+
+# Model Development
+## Niat's Model
+#Random Forest 
+### Model Building
+
+```{r}
+# Convert 'diabetes' to factor
+train_data$diabetes <- as.factor(train_data$diabetes)
+test_data$diabetes <- as.factor(test_data$diabetes)
+validation_data$diabetes <- as.factor(validation_data$diabetes)
+
+```
+
+
+```{r}
+install.packages("randomForest")
+library(randomForest)
+
+set.seed(123)  
+base_rf <- randomForest(
+  diabetes ~ ., 
+  data = train_data,
+  importance = TRUE 
+)
+
+validation_pred_base <- predict(base_rf, validation_data)
+confusionMatrix(validation_pred_base, validation_data$diabetes)
+
+```
+
+
+
+```{r}
+library(doParallel)
+ctrl <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,        # <--- THIS is critical
+  summaryFunction = twoClassSummary,  # optional but good for ROC
+  savePredictions = "final" # helps with diagnostics
+)
+
+set.seed(123)
+tuned_rf <- train(
+  diabetes ~ .,
+  data = train_data,
+  method = "ranger",
+  trControl = ctrl,
+  tuneGrid = tune_grid,
+  importance = "impurity",
+  num.trees = 100,
+  metric = "ROC"  # Optional: optimize by AUC
+)
+
+
+stopCluster(cl)
+print(tuned_rf$bestTune)
+validation_pred_tuned <- predict(tuned_rf, validation_data)
+confusionMatrix(validation_pred_tuned, validation_data$diabetes)
+```
+### Model Testing and Evaluation
+
+
+```{r}
+install.packages("pROC")
+library(pROC)
+# function for bootstrap CIs
+get_bootstrap_ci <- function(predictions, true_labels, metric = "accuracy", n_bootstrap = 100) {
+  set.seed(123)
+  boot_results <- replicate(n_bootstrap, {
+    idx <- sample(length(true_labels), replace = TRUE)
+    if (metric == "accuracy") {
+      mean(predictions[idx] == true_labels[idx])
+    } else if (metric == "sensitivity") {
+      caret::sensitivity(predictions[idx], true_labels[idx])
+    } else if (metric == "specificity") {
+      caret::specificity(predictions[idx], true_labels[idx])
+    }
+  })
+  quantile(boot_results, c(0.025, 0.975))  # 95% CI
+}
+
+cat("\n**Base Model Performance**\n")
+confusionMatrix(validation_pred_base, validation_data$diabetes)
+
+# accuracy CI
+ci_accuracy_base <- get_bootstrap_ci(validation_pred_base, validation_data$diabetes, "accuracy")
+cat("\nBase Model Accuracy 95% CI:", ci_accuracy_base, "\n")
+
+# tuned model metrics
+cat("\n**Tuned Model Performance**\n")
+confusionMatrix(validation_pred_tuned, validation_data$diabetes)
+
+# accuracy CI
+ci_accuracy_tuned <- get_bootstrap_ci(validation_pred_tuned, validation_data$diabetes, "accuracy")
+cat("\nTuned Model Accuracy 95% CI:", ci_accuracy_tuned, "\n")
+
+#AUC-ROC Comparison 
+pred_probs_base <- predict(base_rf, validation_data, type = "prob")[, "Positive"]
+pred_probs_tuned <- predict(tuned_rf, validation_data, type = "prob")[, "Positive"]
+
+roc_base <- roc(validation_data$diabetes, pred_probs_base)
+roc_tuned <- roc(validation_data$diabetes, pred_probs_tuned)
+
+cat("\nBase Model AUC:", auc(roc_base), "95% CI:", ci.auc(roc_base), "\n")
+cat("Tuned Model AUC:", auc(roc_tuned), "95% CI:", ci.auc(roc_tuned), "\n")
+
+# Plot ROC curves
+plot(roc_base, col = "blue", main = "ROC Curves")
+lines(roc_tuned, col = "red")
+legend("bottomright", legend = c("Base Model", "Tuned Model"), col = c("blue", "red"), lwd = 2)
+
+
+```
+
+
+```{r}
+# base model
+varImpPlot(base_rf, main = "Base Model - Variable Importance")
+
+# tuned model
+plot(varImp(tuned_rf), main = "Tuned Model - Variable Importance")
+```
+
+## Tommy's Model
+
+### Model Building
+
+```{r}
+
+```
+
+### Model Testing and Evaluation
+
+```{r}
+
+```
