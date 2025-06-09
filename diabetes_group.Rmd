@@ -1,49 +1,10 @@
 ---
-title: "Classifying the Onset of Diabetes Using Medical and Demographic Patient Data"
-output: 
-  html_document:
-    theme: journal
-    toc: True
-    toc_float: True
+title: "Diabetes Test"
+output: html_document
 ---
-
-# Overview
-
-## Setup Environment
-
-<!--
-Load necessary libraries - (run it on the console)
-# Install packages
-install.packages("caret")
-install.packages("correlationfunnel")
-install.packages("corrplot")
-install.packages("DataExplorer")
-install.packages("dplyr")
-install.packages("forcats")
-install.packages("GGally")
-install.packages("ggthemes")
-install.packages("ggplot2")
-install.packages("naniar")
-install.packages("summarytools")
-install.packages("tidyverse")
--->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
-# Load packages
-library(caret)
-library(correlationfunnel)
-library(corrplot)
-library(DataExplorer)
-library(dplyr)
-library(forcats)
-library(GGally)
-library(ggthemes)
-library(ggplot2)
-library(naniar)
-library(summarytools)
-library(tidyverse)
 ```
 
 ## Dataset Overview and Objective
@@ -63,11 +24,29 @@ Blood Glucose Level: Instantaneous measure of blood sugar at the time of recordi
 Diabetes Status: Target variable indicating whether the patient is diabetic (positive) or not (negative)
 The primary objective of this analysis is to develop a predictive classification model that determines whether an individual is likely to have diabetes based on their medical and lifestyle attributes. 
 
-# Data Exploration
+ Load necessary libraries - (run it on my console)
+# Install packages 
+install.packages("summarytools")
+install.packages("DataExplorer")
+install.packages("naniar")
+install.packages("GGally")
+install.packages("ggthemes")
+install.packages("correlationfunnel")  
 
-## Load Data
+# Load packages
+library(tidyverse)      
+library(ggplot2)       
+library(dplyr) 
+library(forcats)
+library(summarytools)   
+library(caret)          
+library(DataExplorer)   
+library(GGally)        
+library(naniar)        
+library(ggthemes)
+library(correlationfunnel)
 
-```{r Load Data}
+```{r}
 # Clear everything
 rm(list = ls())
 gc()
@@ -77,7 +56,7 @@ library(ggplot2)
 library(dplyr)
 
 # Load data
-df <- read.csv("diabetes_prediction_dataset.csv", stringsAsFactors = FALSE)
+df <- read.csv("/Users/niyatkahsay/Desktop/ADS 503B/Group_project/diabetes_prediction_dataset.csv", stringsAsFactors = FALSE)
 
 # View first few rows
 head(df)
@@ -86,25 +65,19 @@ head(df)
 summary(df)
 ```
 
-```{r Data Glimpse, include=FALSE}
+
+```{r}
 dplyr::glimpse(df)
 ```
 
-## Data Preprocessing
-
-### Missing Values
-
-```{r Missing Values}
+```{r}
 # Check for missing values
 sum(is.na(df))
 vis_miss(df)  # Visualize missing data
 ```
-
-### Encode Categorical Variables
-
 Categorical variables were converted to factors for better readability for EDA purpose. Binary values (0 and 1) for hypertension, heart disease, and diabetes were relabeled as "No"/"Yes" or "Negative"/"Positive" to improve interpretability.
 
-```{r Data Encoding}
+```{r}
 # Convert to proper types -> 0 and 1 to "yes" and "no"
 df <- df %>%
   mutate(
@@ -120,12 +93,9 @@ df %>%
   count(smoking_history) %>% 
   mutate(prop = n/sum(n))
 ```
-
-### Feature Engineering
-
 Smoking history was cleaned by renaming "No Info" to "Unknown" and merging similar categories. "Ever," "former," and "not current" became "Former" (19.8%), while "Never" (35.1%) and "Current" (9.3%) were kept unchanged.
 
-```{r Feature Engineering}
+```{r}
 # Consolidate smoking history categories
 df <- df %>%
   mutate(smoking_history = factor(smoking_history)) %>%
@@ -143,12 +113,7 @@ df%>%
   count(smoking_history) %>% 
   mutate(prop = n/sum(n))
 ```
-
-# Exploratory Data Analysis
-
-## Diabetes (Response) Class Distribution
-
-```{r Diabetes Class Distribution}
+```{r}
 # Target distribution
 ggplot(df, aes(diabetes, fill = diabetes)) +
   geom_bar() +
@@ -158,11 +123,11 @@ ggplot(df, aes(diabetes, fill = diabetes)) +
     vjust = -0.5
   ) +
   labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
+
 ```
 
-## Diabetes Versus Age Distribution
 
-```{r Diabetes vs Age}
+```{r}
 # Age analysis
 ggplot(df, aes(x = age, fill = diabetes, group = diabetes)) +
   geom_density(alpha = 0.7) +
@@ -171,10 +136,7 @@ ggplot(df, aes(x = age, fill = diabetes, group = diabetes)) +
   theme_minimal() +
   theme(legend.position = "none")
 ```
-
-## Distribution of BMI
-
-```{r BMI Distribution}
+```{r}
 # BMI analysis with clinical thresholds
 ggplot(df, aes(bmi)) +
   geom_histogram(fill = "steelblue", bins = 30) +
@@ -185,10 +147,7 @@ ggplot(df, aes(bmi)) +
            label = c("Underweight", "Normal", "Overweight", "Obese")) +
   labs(title = "BMI Distribution with Clinical Thresholds")
 ```
-
-## Critical Biomarkers Versus Diabetes Class
-
-```{r Biomarker Versus Diabetes Class}
+```{r}
 df %>% 
   select(HbA1c_level, blood_glucose_level, diabetes) %>% 
   pivot_longer(-diabetes) %>% 
@@ -201,10 +160,7 @@ df %>%
   labs(title = "Critical Biomarkers Distribution",
        subtitle = "Red lines indicate diagnostic thresholds")
 ```
-
-## Diabetes Class Distribution by Gender
-
-```{r Diabetes Class by Gender}
+```{r}
 ggplot(df, aes(x = gender, fill = gender)) +
   geom_bar() +
   geom_text(
@@ -224,9 +180,8 @@ ggplot(df, aes(x = gender, fill = gender)) +
 
 We are dropping "others" because they are only  18 observations (0.018% of 100k dataset) won't impact analysis
 
-## Distribution of Gender
 
-```{r Gender Distribution}
+```{r}
 table(df$gender)
 
 df <- df %>%
@@ -255,9 +210,8 @@ ggplot(df, aes(x = gender, fill = gender)) +
   theme_minimal()
 ```
 
-## Correlation Funnel for Target-Focused Relationships
 
-```{r Correlation Funnel}
+```{r}
 # Correlation funnel for target-focused relationships
 
 # Prepare data
@@ -276,7 +230,7 @@ df %>%
   theme_minimal()
 ```
 
-## Key Findings from Correlation Analysis
+Key Findings from Correlation Analysis
 
 High-Risk Indicators
 • HbA1c > 6.2% & glucose > 140 mg/dL
@@ -292,9 +246,7 @@ Clear biomarker thresholds
 Progressive age-risk relationship
 Gender shows minor association
 
-## Diabetes Rate by Comorbidities
-
-```{r Diabetes Rate by Comorbidities}
+```{r}
 # Comorbidity analysis
 comorbidity_analysis <- df %>%
   group_by(hypertension, heart_disease) %>%
@@ -322,6 +274,9 @@ summary(df$bmi)
 #calculate the 0.5% and 99.5% percentiles
 bmi_caps <- quantile(df$bmi, probs = c(0.005, 0.995), na.rm = TRUE)
 print(bmi_caps)
+
+
+
 ```
 The observed BMI values, ranging from 13.89 to 52.50, fall within the clinically plausible range of 12 to 60. This suggests that all recorded measurements are physiologically valid. As a result, we chose to retain all BMI values without applying any capping.
 
@@ -414,216 +369,12 @@ final_data <- encoded_predictors %>%
 ```
 
 
-```{r, include=FALSE}
+```{r}
 glimpse(final_data)
 ```
-```{r Save Final Data to CSV, include=FALSE}
+```{r}
 # Save processed data
-#write_csv(final_data, "diabetes_processed.csv")
-```
-
-Test/Train/Validation Splits
-
-```{r}
-final_data <- read_csv('/Users/niyatkahsay/Desktop/ADS 503B/Group_project/diabetes_processed.csv')
-print(str(final_data))
-unique(train_data$diabetes)
-
+write_csv(final_data, "diabetes_processed.csv")
 ```
 
 
-```{r}
-
-set.seed(35)
-split_df <- final_data
-
-train_index <- createDataPartition(final_data$diabetes, p = 0.8, list = FALSE)
-train_data <- final_data[train_index, ]
-test_val_data <- final_data[-train_index, ]
-
-test_val_index <- createDataPartition(test_val_data$diabetes, p = 0.5, list = FALSE)
-validation_data <- test_val_data[test_val_index, ]
-test_data <- test_val_data[-test_val_index, ]
-
-dim(final_data)
-dim(train_data)
-dim(test_data)
-dim(validation_data)
-```
-
-```{r}
-ggplot(train_data, aes(diabetes, fill = diabetes)) +
-  geom_bar() +
-  geom_text(
-    stat = "count", 
-    aes(label = ..count..), 
-    vjust = -0.5
-  ) +
-  labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
-```
-
-```{r}
-ggplot(test_data, aes(diabetes, fill = diabetes)) +
-  geom_bar() +
-  geom_text(
-    stat = "count", 
-    aes(label = ..count..), 
-    vjust = -0.5
-  ) +
-  labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
-```
-
-```{r}
-ggplot(validation_data, aes(diabetes, fill = diabetes)) +
-  geom_bar() +
-  geom_text(
-    stat = "count", 
-    aes(label = ..count..), 
-    vjust = -0.5
-  ) +
-  labs(title = "Diabetes Class Distribution", x = "Diabetes Status")
-```
-
-```{r, include=FALSE}
-write_csv(train_data, "diabetes_train.csv")
-write_csv(test_data, "diabetes_test.csv")
-write_csv(validation_data, "diabetes_validation.csv")
-```
-
-# Model Development
-## Niat's Model
-#Random Forest 
-### Model Building
-
-```{r}
-# Convert 'diabetes' to factor
-train_data$diabetes <- as.factor(train_data$diabetes)
-test_data$diabetes <- as.factor(test_data$diabetes)
-validation_data$diabetes <- as.factor(validation_data$diabetes)
-
-```
-
-
-```{r}
-install.packages("randomForest")
-library(randomForest)
-
-set.seed(123)  
-base_rf <- randomForest(
-  diabetes ~ ., 
-  data = train_data,
-  importance = TRUE 
-)
-
-validation_pred_base <- predict(base_rf, validation_data)
-confusionMatrix(validation_pred_base, validation_data$diabetes)
-
-```
-
-
-
-```{r}
-library(doParallel)
-ctrl <- trainControl(
-  method = "cv",
-  number = 5,
-  classProbs = TRUE,        # <--- THIS is critical
-  summaryFunction = twoClassSummary,  # optional but good for ROC
-  savePredictions = "final" # helps with diagnostics
-)
-
-set.seed(123)
-tuned_rf <- train(
-  diabetes ~ .,
-  data = train_data,
-  method = "ranger",
-  trControl = ctrl,
-  tuneGrid = tune_grid,
-  importance = "impurity",
-  num.trees = 100,
-  metric = "ROC"  # Optional: optimize by AUC
-)
-
-
-stopCluster(cl)
-print(tuned_rf$bestTune)
-validation_pred_tuned <- predict(tuned_rf, validation_data)
-confusionMatrix(validation_pred_tuned, validation_data$diabetes)
-```
-### Model Testing and Evaluation
-
-
-```{r}
-install.packages("pROC")
-library(pROC)
-# function for bootstrap CIs
-get_bootstrap_ci <- function(predictions, true_labels, metric = "accuracy", n_bootstrap = 100) {
-  set.seed(123)
-  boot_results <- replicate(n_bootstrap, {
-    idx <- sample(length(true_labels), replace = TRUE)
-    if (metric == "accuracy") {
-      mean(predictions[idx] == true_labels[idx])
-    } else if (metric == "sensitivity") {
-      caret::sensitivity(predictions[idx], true_labels[idx])
-    } else if (metric == "specificity") {
-      caret::specificity(predictions[idx], true_labels[idx])
-    }
-  })
-  quantile(boot_results, c(0.025, 0.975))  # 95% CI
-}
-
-cat("\n**Base Model Performance**\n")
-confusionMatrix(validation_pred_base, validation_data$diabetes)
-
-# accuracy CI
-ci_accuracy_base <- get_bootstrap_ci(validation_pred_base, validation_data$diabetes, "accuracy")
-cat("\nBase Model Accuracy 95% CI:", ci_accuracy_base, "\n")
-
-# tuned model metrics
-cat("\n**Tuned Model Performance**\n")
-confusionMatrix(validation_pred_tuned, validation_data$diabetes)
-
-# accuracy CI
-ci_accuracy_tuned <- get_bootstrap_ci(validation_pred_tuned, validation_data$diabetes, "accuracy")
-cat("\nTuned Model Accuracy 95% CI:", ci_accuracy_tuned, "\n")
-
-#AUC-ROC Comparison 
-pred_probs_base <- predict(base_rf, validation_data, type = "prob")[, "Positive"]
-pred_probs_tuned <- predict(tuned_rf, validation_data, type = "prob")[, "Positive"]
-
-roc_base <- roc(validation_data$diabetes, pred_probs_base)
-roc_tuned <- roc(validation_data$diabetes, pred_probs_tuned)
-
-cat("\nBase Model AUC:", auc(roc_base), "95% CI:", ci.auc(roc_base), "\n")
-cat("Tuned Model AUC:", auc(roc_tuned), "95% CI:", ci.auc(roc_tuned), "\n")
-
-# Plot ROC curves
-plot(roc_base, col = "blue", main = "ROC Curves")
-lines(roc_tuned, col = "red")
-legend("bottomright", legend = c("Base Model", "Tuned Model"), col = c("blue", "red"), lwd = 2)
-
-
-```
-
-
-```{r}
-# base model
-varImpPlot(base_rf, main = "Base Model - Variable Importance")
-
-# tuned model
-plot(varImp(tuned_rf), main = "Tuned Model - Variable Importance")
-```
-
-## Tommy's Model
-
-### Model Building
-
-```{r}
-
-```
-
-### Model Testing and Evaluation
-
-```{r}
-
-```
