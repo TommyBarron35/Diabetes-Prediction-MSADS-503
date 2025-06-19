@@ -1,10 +1,16 @@
 ---
 title: "Classifying the Onset of Diabetes Using Medical and Demographic Patient Data"
-output: 
+author:
+- name: Tommy Barron
+- name: Niat Kahsay
+date: "`r Sys.Date()`"
+output:
+  word_document:
+    toc: true
   html_document:
     theme: journal
-    toc: True
-    toc_float: True
+    toc: true
+    toc_float: true
 ---
 
 # Overview
@@ -14,16 +20,22 @@ output:
 <!--
 Load necessary libraries - (run it on the console)
 # Install packages
+install.packages("boot")
 install.packages("caret")
 install.packages("correlationfunnel")
 install.packages("corrplot")
 install.packages("DataExplorer")
+install.packages("doParallel")
 install.packages("dplyr")
 install.packages("forcats")
 install.packages("GGally")
 install.packages("ggthemes")
 install.packages("ggplot2")
+install.packages("kernlab")
 install.packages("naniar")
+install.packages("pROC")
+install.packages("ranger")
+install.packages("randomForests")
 install.packages("summarytools")
 install.packages("tidyverse")
 -->
@@ -32,16 +44,22 @@ install.packages("tidyverse")
 knitr::opts_chunk$set(echo = TRUE)
 
 # Load packages
+library(boot)
 library(caret)
 library(correlationfunnel)
 library(corrplot)
 library(DataExplorer)
+library(doParallel)
 library(dplyr)
 library(forcats)
 library(GGally)
 library(ggthemes)
 library(ggplot2)
+library(kernlab)
 library(naniar)
+library(pROC)
+library(randomForest)
+library(ranger)
 library(summarytools)
 library(tidyverse)
 ```
@@ -419,21 +437,12 @@ glimpse(final_data)
 ```
 ```{r Save Final Data to CSV, include=FALSE}
 # Save processed data
-#write_csv(final_data, "diabetes_processed.csv")
+# write_csv(final_data, "diabetes_processed.csv")
 ```
 
 Test/Train/Validation Splits
 
 ```{r}
-final_data <- read_csv('/Users/niyatkahsay/Desktop/ADS 503B/Group_project/diabetes_processed.csv')
-print(str(final_data))
-unique(train_data$diabetes)
-
-```
-
-
-```{r}
-
 set.seed(35)
 split_df <- final_data
 
@@ -485,14 +494,15 @@ ggplot(validation_data, aes(diabetes, fill = diabetes)) +
 ```
 
 ```{r, include=FALSE}
-write_csv(train_data, "diabetes_train.csv")
-write_csv(test_data, "diabetes_test.csv")
-write_csv(validation_data, "diabetes_validation.csv")
+# write_csv(train_data, "diabetes_train.csv")
+# write_csv(test_data, "diabetes_test.csv")
+# write_csv(validation_data, "diabetes_validation.csv")
 ```
 
 # Model Development
-## Niat's Model
-#Random Forest 
+
+## Niat's Model - Random Forest
+
 ### Model Building
 
 ```{r}
@@ -500,14 +510,10 @@ write_csv(validation_data, "diabetes_validation.csv")
 train_data$diabetes <- as.factor(train_data$diabetes)
 test_data$diabetes <- as.factor(test_data$diabetes)
 validation_data$diabetes <- as.factor(validation_data$diabetes)
-
 ```
 
 
 ```{r}
-install.packages("randomForest")
-library(randomForest)
-
 set.seed(123)  
 base_rf <- randomForest(
   diabetes ~ ., 
@@ -517,21 +523,31 @@ base_rf <- randomForest(
 
 validation_pred_base <- predict(base_rf, validation_data)
 confusionMatrix(validation_pred_base, validation_data$diabetes)
-
 ```
 
 
 
 ```{r}
-library(doParallel)
+# Set up parallel processing
+cl <- makePSOCKcluster(4) 
+registerDoParallel(cl)
 ctrl <- trainControl(
   method = "cv",
   number = 5,
-  classProbs = TRUE,        # <--- THIS is critical
-  summaryFunction = twoClassSummary,  # optional but good for ROC
-  savePredictions = "final" # helps with diagnostics
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final",
+  allowParallel = TRUE
+)  
+
+
+tune_grid <- expand.grid(
+  mtry = floor(seq(2, ncol(train_data)-1, length.out = 5)),
+  splitrule = "gini",
+  min.node.size = 1
 )
 
+# Train model THIRD
 set.seed(123)
 tuned_rf <- train(
   diabetes ~ .,
@@ -541,10 +557,10 @@ tuned_rf <- train(
   tuneGrid = tune_grid,
   importance = "impurity",
   num.trees = 100,
-  metric = "ROC"  # Optional: optimize by AUC
+  metric = "ROC"
 )
 
-
+# Stop parallel cluster
 stopCluster(cl)
 print(tuned_rf$bestTune)
 validation_pred_tuned <- predict(tuned_rf, validation_data)
@@ -554,8 +570,6 @@ confusionMatrix(validation_pred_tuned, validation_data$diabetes)
 
 
 ```{r}
-install.packages("pROC")
-library(pROC)
 # function for bootstrap CIs
 get_bootstrap_ci <- function(predictions, true_labels, metric = "accuracy", n_bootstrap = 100) {
   set.seed(123)
@@ -614,16 +628,165 @@ varImpPlot(base_rf, main = "Base Model - Variable Importance")
 plot(varImp(tuned_rf), main = "Tuned Model - Variable Importance")
 ```
 
-## Tommy's Model
+## Tommy's Model - SVM
 
 ### Model Building
 
 ```{r}
+ctrl <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary
+)
 
+cost_varies <- c(0.01, 0.1, 1, 10)
+eps_varies <- c(0.01, 0.1, 0.5, 1.0)
+sig_varies <- c(0.01, 0.1, 1, 10)
+
+svm_models_cost <- list()
+svm_models_eps <- list()
+svm_models_sig <- list()
+
+for (C_val in cost_varies) {
+  svm_models_cost[[as.character(C_val)]] <- ksvm(
+    diabetes ~.,
+    data = train_data,
+    kernel = "rbfdot",
+    trControl = ctrl,
+    prob.model = TRUE,
+    kpar = list(sigma = 1),
+    C = C_val,
+    epsilon = 1
+  )
+}
+
+for (E_val in eps_varies) {
+  svm_models_eps[[as.character(E_val)]] <- ksvm(
+    diabetes ~.,
+    data = train_data,
+    kernel = "rbfdot",
+    trControl = ctrl,
+    prob.model = TRUE,
+    kpar = list(sigma = 1),
+    C = 1,
+    epsilon = E_val
+  )
+}
+
+for (S_val in sig_varies) {
+  svm_models_sig[[as.character(S_val)]] <- ksvm(
+    diabetes ~.,
+    data = train_data,
+    kernel = "rbfdot",
+    trControl = ctrl,
+    prob.model = TRUE,
+    kpar = list(sigma = S_val),
+    C = 1,
+    epsilon = 1
+  )
+}
+```
+
+```{r}
+for(C_val in names(svm_models_cost)) {
+  cost_model <- svm_models_cost[[C_val]]
+  predictions <- predict(cost_model, validation_data)
+  cat("Confusion Matrix for C =", C_val, "\n")
+  print(table(Predicted = predictions, Actual = test_data$diabetes))
+  cat("\n")
+}
+
+for(E_val in names(svm_models_eps)) {
+  eps_model <- svm_models_eps[[E_val]]
+  predictions <- predict(eps_model, validation_data)
+  cat("Confusion Matrix for epsilon =", E_val, "\n")
+  print(table(Predicted = predictions, Actual = test_data$diabetes))
+  cat("\n")
+}
+
+for(S_val in names(svm_models_sig)) {
+  sig_model <- svm_models_sig[[S_val]]
+  predictions <- predict(sig_model, validation_data)
+  cat("Confusion Matrix for sigma =", S_val, "\n")
+  print(table(Predicted = predictions, Actual = test_data$diabetes))
+  cat("\n")
+}
+```
+
+```{r}
+svm_model_base <- ksvm(
+  diabetes ~.,
+  data = train_data,
+  kernel = "rbfdot",
+  trControl = ctrl,
+  prob.model = TRUE,
+  kpar = list(sigma = 1),
+  C = 1,
+  epsilon = 1
+)
+
+svm_model_tuned <- ksvm(
+  diabetes ~.,
+  data = train_data,
+  kernel = "rbfdot",
+  trControl = ctrl,
+  prob.model = TRUE,
+  kpar = list(sigma = 0.1),
+  C = 10,
+  epsilon = 1
+)
 ```
 
 ### Model Testing and Evaluation
 
 ```{r}
+basePredictions <- predict(svm_model_base, test_data)
+cat("Confusion Matrix for Base SVM Model", "\n")
+print(table(Predicted = basePredictions, Actual = test_data$diabetes))
+cat("\n")
 
+tunedPredictions <- predict(svm_model_tuned, test_data)
+cat("Confusion Matrix for Tuned SVM Model", "\n")
+print(table(Predicted = tunedPredictions, Actual = test_data$diabetes))
+cat("\n")
+
+accuracy_function <- function(data, indices) {
+  d <- data[indices, ]
+  mean(d$actual == d$predicted)
+}
+
+dfBase <- data.frame(
+  actual = test_data$diabetes,
+  predicted = basePredictions
+)
+
+boot_out_base <- boot(data = dfBase, statistic = accuracy_function, R = 1000)
+
+cat("Confidence Interval for Base SVM Model", "\n")
+boot.ci(boot_out_base, type = "perc")
+cat("\n")
+
+dfTuned <-  data.frame(
+  actual = test_data$diabetes,
+  predicted = tunedPredictions
+)
+
+boot_out_tuned <- boot(data = dfTuned, statistic = accuracy_function, R = 1000)
+
+cat("Confidence Interval for Tuned SVM Model", "\n")
+boot.ci(boot_out_tuned, type = "perc")
+cat("\n")
+
+basePredProb <- predict(svm_model_base, test_data, type = "prob")[, "Positive"]
+tunedPredProb <- predict(svm_model_tuned, test_data, type = "prob")[, "Positive"]
+
+baseSVMROC <- roc(test_data$diabetes, basePredProb)
+tunedSVMROC <- roc(test_data$diabetes, tunedPredProb)
+
+cat("\nBase SVM Model AUC:", auc(baseSVMROC), "95% CI:", ci.auc(baseSVMROC))
+cat("\nTuned SVM Model AUC:", auc(tunedSVMROC), "95% CI:", ci.auc(tunedSVMROC))
+
+plot(baseSVMROC, col = "blue", main = "ROC Curves")
+lines(tunedSVMROC, col = "red")
 ```
